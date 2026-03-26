@@ -1,6 +1,6 @@
 # DriveDesk 要件定義書
 
-**バージョン**: 0.6.0
+**バージョン**: 0.7.0
 **作成日**: 2026-03-26
 **ステータス**: ドラフト
 
@@ -105,7 +105,7 @@ processors:
     registration_mode: finalize
   - type: jdl_csv
     output_folder_id: "${JDL_OUTPUT_FOLDER_ID}"
-    schedule: weekly
+    schedule: monthly   # daily / weekly / monthly から選択可能
 ```
 
 > ⚠️ **TODO**: JDL IBEXのCSVインポートフォーマット仕様を調査・確認する
