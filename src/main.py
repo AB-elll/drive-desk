@@ -1,10 +1,12 @@
+import logging
 import sys
 import time
-import logging
-from pathlib import Path
 
 from config import load_config
+from logger import SheetLogger
 from metadata_store import init_db
+from pipeline import process_file
+from watcher import Watcher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,19 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 def run(client_id: str):
-    logger.info(f"DriveDesk starting for client: {client_id}")
+    logger.info(f"DriveDesk starting — client: {client_id}")
     config = load_config(client_id)
     init_db()
 
-    # TODO: Google Drive API認証セットアップ後に有効化
-    # from watcher import Watcher
-    # watcher = Watcher(config)
+    watcher      = Watcher(config)
+    sheet_logger = SheetLogger(config)
+    interval     = config["drive"].get("watch_interval_seconds", 60)
 
-    interval = config["drive"].get("watch_interval_seconds", 60)
-    logger.info(f"Watch interval: {interval}s")
-    logger.info("Watcher not yet available — waiting for Google API setup")
+    logger.info(f"Watching folder: {config['drive']['folder_id']} (interval: {interval}s)")
 
     while True:
+        try:
+            new_files = watcher.poll()
+            if new_files:
+                logger.info(f"Detected {len(new_files)} new file(s)")
+                for file_info in new_files:
+                    file_info["folder_path"] = watcher.get_folder_path(file_info["file_id"])
+                    process_file(file_info, config, sheet_logger)
+            else:
+                logger.debug("No new files")
+        except Exception as e:
+            logger.error(f"Poll error: {e}", exc_info=True)
+
         time.sleep(interval)
 
 

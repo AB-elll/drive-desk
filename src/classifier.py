@@ -1,5 +1,5 @@
 import json
-import anthropic
+import os
 
 # ドキュメント種別ごとのprimary_dateキー
 PRIMARY_DATE_RULES = {
@@ -41,24 +41,16 @@ SYSTEM_PROMPT = """
 
 
 def classify(file_name: str, mime_type: str, folder_path: str, config: dict) -> dict:
+    from claude_cli import call_claude
     threshold = config.get("classifier", {}).get("confidence_threshold", 0.8)
     model = config.get("classifier", {}).get("model", "claude-sonnet-4-6")
 
-    client = anthropic.Anthropic()
     user_message = f"""
 ファイル名: {file_name}
 MIMEタイプ: {mime_type}
 格納フォルダパス: {folder_path}
 """
-
-    response = client.messages.create(
-        model=model,
-        max_tokens=512,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
-
-    raw = response.content[0].text.strip()
+    raw = call_claude(SYSTEM_PROMPT, user_message, model=model, max_tokens=512)
     # JSONブロックを抽出
     if "```" in raw:
         raw = raw.split("```")[1].lstrip("json").strip()
