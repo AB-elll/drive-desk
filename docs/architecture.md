@@ -105,14 +105,18 @@ interface ProcessorPlugin {
 | confidence | 信頼度スコア |
 | extracted_data | 抽出データ（JSON） |
 | processor | 使用したプロセッサ |
-| result | 処理結果（processed / requires_review / failed） |
+| result | 処理結果（processed / failed / unprocessable） |
+| low_confidence | 低信頼度フラグ（true/false） |
 | error | エラー内容（失敗時） |
-| external_id | 外部ツール側のID（freee取引IDなど） |
+| external_ids | 外部ツール側のID・複数対応（JSON配列） |
 
 ### 2.6 Notifier（通知）
-**責務**: 要確認・エラー発生時に通知する
+**責務**: 処理不能ファイルの蓄積・システムエラー発生時に通知する
 
 プラグイン型。初期はスプレッドシートへの記録のみ。将来的にTelegram・Slack等を追加。
+
+- **unprocessableバッチ通知**: 設定した頻度でまとめて通知（`hourly` / `daily` / `weekly` / `off`、デフォルト: `daily`）
+- **システムエラー通知**: 処理失敗時は即時通知
 
 ---
 
@@ -123,19 +127,25 @@ interface ProcessorPlugin {
       ↓
 [メタデータ取得] → ファイル名・サイズ・MIMEタイプ・フォルダパス
       ↓
+[SQLiteにpendingレコード作成] → shared_at を記録
+      ↓
 [ファイルダウンロード] → 一時ファイルとしてローカルに保存
       ↓
 [Classifier] → カテゴリ・信頼度を決定
       ↓
-  信頼度 < 閾値？
-  ├─ YES → [requires_review] → Logger記録 → Notifier
-  └─ NO  → [Extractor] → 構造化データ抽出
+  分類・抽出が可能？
+  ├─ NO  → [unprocessable] → SQLite更新 → Logger記録
+  │         → バッチキューに追加（日次等でまとめてNotifier）
+  └─ YES → [Extractor] → 構造化データ抽出（primary_date・dates含む）
                 ↓
-           [Processor] → 外部ツールへ登録
+           [Processor] → 設定に従いfreeeへ登録（finalize or draft）
+           ※ 1ファイル→複数取引の場合は全件登録
                 ↓
            成功？
-           ├─ YES → [Logger] processed記録
-           └─ NO  → [Logger] failed記録 → Notifier → リトライキュー
+           ├─ YES → [SQLite] processed更新・processor_refs保存
+           │         → [Drive Custom Properties] 同期
+           │         → [Logger] スプレッドシートに記録
+           └─ NO  → [SQLite] failed更新 → Logger記録 → 即時Notifier → リトライキュー
 ```
 
 ---
@@ -169,8 +179,13 @@ logger:
   spreadsheet_id: "${LOG_SPREADSHEET_ID}"
   sheet_name: "DriveDesk Log"
 
+processor:
+  freee:
+    registration_mode: finalize   # finalize（デフォルト）or draft
+
 notifier:
-  type: spreadsheet  # 初期: スプレッドシート記録のみ
+  unprocessable_batch: daily      # hourly / daily（デフォルト）/ weekly / off
+  type: spreadsheet               # 初期: スプレッドシート記録のみ
   # type: telegram
   # token: "${TELEGRAM_BOT_TOKEN}"
   # chat_id: "${TELEGRAM_CHAT_ID}"
