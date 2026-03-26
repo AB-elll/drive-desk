@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.drivedesk.karas</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/shotaando/projects/drive-desk/run.sh</string>
+        <string>karas</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/shotaando/projects/drive-desk</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/shotaando/Library/Logs/drivedesk/karas.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/shotaando/Library/Logs/drivedesk/karas.error.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/shotaando</string>
+    </dict>
+</dict>
+</plist>
