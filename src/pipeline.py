@@ -22,7 +22,7 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger):
 
     # ── 1. 分類 ──────────────────────────────────────────────
     try:
-        cls = classify(file_name, mime_type, folder_path, config)
+        cls = classify(file_name, mime_type, folder_path, config, local_path=local_path)
     except Exception as e:
         logger.error(f"Classification failed: {e}")
         upsert_file(file_id, status="unprocessable", error_message=str(e))

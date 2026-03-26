@@ -40,8 +40,9 @@ SYSTEM_PROMPT = """
 """
 
 
-def classify(file_name: str, mime_type: str, folder_path: str, config: dict) -> dict:
-    from claude_cli import call_claude
+def classify(file_name: str, mime_type: str, folder_path: str, config: dict,
+             local_path: str = None) -> dict:
+    from claude_cli import call_claude, call_claude_with_file
     threshold = config.get("classifier", {}).get("confidence_threshold", 0.8)
     model = config.get("classifier", {}).get("model", "claude-sonnet-4-6")
 
@@ -49,8 +50,14 @@ def classify(file_name: str, mime_type: str, folder_path: str, config: dict) -> 
 ファイル名: {file_name}
 MIMEタイプ: {mime_type}
 格納フォルダパス: {folder_path}
+
+画像の場合は、画像の内容を確認して分類してください。
 """
-    raw = call_claude(SYSTEM_PROMPT, user_message, model=model, max_tokens=512)
+    # 画像/PDFファイルがある場合はVisionで分類
+    if local_path and mime_type and (mime_type.startswith("image/") or mime_type == "application/pdf"):
+        raw = call_claude_with_file(SYSTEM_PROMPT, user_message, local_path, mime_type, model=model)
+    else:
+        raw = call_claude(SYSTEM_PROMPT, user_message, model=model, max_tokens=512)
     # JSONブロックを抽出
     if "```" in raw:
         raw = raw.split("```")[1].lstrip("json").strip()

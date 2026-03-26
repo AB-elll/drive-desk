@@ -23,11 +23,15 @@ def call_claude(system: str, user_text: str, model: str = "claude-sonnet-4-6",
 
 def call_claude_with_file(system: str, user_text: str, file_path: str,
                           mime_type: str, model: str = "claude-sonnet-4-6") -> str:
-    """ファイル（画像/PDF）付きプロンプトをClaudeに送る。"""
-    prompt = f"<system>\n{system}\n</system>\n\n{user_text}"
+    """ファイル（画像/PDF）付きプロンプトをClaudeに送る。Readツール経由で画像を読み込む。"""
+    prompt = (
+        f"<system>\n{system}\n</system>\n\n"
+        f"Read the file at {file_path} first, then respond based on its content.\n\n"
+        f"{user_text}"
+    )
     result = subprocess.run(
         ["claude", "-p", prompt, "--model", model,
-         "--output-format", "text", file_path],
+         "--output-format", "text", "--allowedTools", "Read"],
         capture_output=True, text=True, timeout=120,
     )
     if result.returncode != 0:

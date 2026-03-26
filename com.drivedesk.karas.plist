@@ -37,6 +37,8 @@
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>/Users/shotaando</string>
+        <key>CLAUDE_CODE_OAUTH_TOKEN</key>
+        <string>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</string>
     </dict>
 </dict>
 </plist>
