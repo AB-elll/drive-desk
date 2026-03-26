@@ -1,6 +1,6 @@
 # DriveDesk 要件定義書
 
-**バージョン**: 0.2.0
+**バージョン**: 0.3.0
 **作成日**: 2026-03-26
 **ステータス**: ドラフト
 
@@ -82,13 +82,62 @@ DriveDesKはすべてのファイルについて以下の情報をAIが常に参
 | `file_id` | Google Drive固有ID（不変・追跡の基準） | `1aBcDeFg...` |
 | `file_name` | ファイル名 | `receipt_20260326.jpg` |
 | `shared_at` | Driveに共有された日時 | `2026-03-26 14:30` |
-| `document_date` | ドキュメント固有の日付 | 購入日・請求日・支払期限等 |
+| `primary_date` | そのドキュメントで最も重要な日付（ソート・フィルタ用） | `2026-03-20` |
+| `dates` | 全日付をキーバリューで格納（JSON） | 下記参照 |
 | `category` | 分類結果 | `accounting/receipt` |
 | `confidence` | 分類信頼度スコア | `0.95` |
 | `status` | 処理ステータス | `pending` / `processed` / `requires_review` / `failed` |
 | `processor` | 登録先ツール | `freee` |
 | `processor_ref` | 登録先での参照ID | freee取引ID等 |
 | `updated_at` | 最終更新日時 | - |
+
+**日付設計の方針**
+
+ドキュメント種別によって意味のある日付が異なるため、`primary_date`（代表日付1つ）と `dates`（全日付のJSON）の二段構えで管理する。
+
+```json
+// 請求書の例
+{ "issue_date": "2026-03-01", "due_date": "2026-03-31" }
+
+// 給与明細の例
+{ "period_start": "2026-03-01", "period_end": "2026-03-31", "payment_date": "2026-04-25" }
+
+// クレジットカード明細の例
+{ "transaction_date": "2026-03-15", "closing_date": "2026-03-25", "payment_date": "2026-04-27" }
+```
+
+**ドキュメント種別ごとの日付定義**
+
+*経理*
+
+| ドキュメント | `primary_date` | `dates` に含まれる日付 |
+|-------------|---------------|----------------------|
+| レシート | `purchase_date` | purchase_date |
+| 領収書 | `payment_date` | payment_date |
+| 請求書 | `due_date` | issue_date, due_date |
+| 納品書 | `delivery_date` | delivery_date |
+| 見積書 | `issue_date` | issue_date, valid_until |
+| 銀行明細 | `period_start` | transaction_date, period_start, period_end |
+| カード明細 | `payment_date` | transaction_date, closing_date, payment_date, period_start, period_end |
+| 契約書（経理） | `effective_date` | contract_date, effective_date, expiry_date |
+
+*労務*
+
+| ドキュメント | `primary_date` | `dates` に含まれる日付 |
+|-------------|---------------|----------------------|
+| 勤怠記録 | `period_start` | period_start, period_end |
+| 給与明細 | `payment_date` | period_start, period_end, payment_date |
+| 雇用契約書 | `start_date` | contract_date, start_date, end_date |
+| 退職関連書類 | `retirement_date` | submission_date, last_working_date, retirement_date |
+| 社保・年金書類 | `effective_date` | application_date, effective_date |
+| 健康診断書 | `examination_date` | examination_date, issue_date |
+
+*法務*
+
+| ドキュメント | `primary_date` | `dates` に含まれる日付 |
+|-------------|---------------|----------------------|
+| 登記書類 | `registration_date` | registration_date, issue_date |
+| 各種契約書 | `effective_date` | contract_date, effective_date, expiry_date |
 
 **ストレージ構成（二層）**
 
