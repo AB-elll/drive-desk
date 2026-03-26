@@ -190,14 +190,14 @@ class FreeePlugin(ProcessorPlugin):
             deal["receipt_ids"] = []  # 下書き扱いのマーカー
 
         resp = requests.post(f"{FREEE_API_BASE}/deals",
-                             json={"deal": deal}, headers=headers)
+                             json=deal, headers=headers)
 
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 60))
             logger.warning(f"Rate limited. Waiting {wait}s...")
             time.sleep(wait)
             resp = requests.post(f"{FREEE_API_BASE}/deals",
-                                 json={"deal": deal}, headers=headers)
+                                 json=deal, headers=headers)
 
         resp.raise_for_status()
         return resp.json()["deal"]["id"]

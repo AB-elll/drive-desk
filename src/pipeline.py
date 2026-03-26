@@ -40,6 +40,8 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger):
     logger.info(f"Classified: {category} (confidence={confidence:.2f}, low={low_conf})")
 
     upsert_file(file_id,
+                file_name=file_name,
+                shared_at=shared_at,
                 category=cls["category"],
                 subcategory=cls["subcategory"],
                 confidence=confidence,
