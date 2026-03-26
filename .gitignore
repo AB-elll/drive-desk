@@ -7,5 +7,6 @@ __pycache__/
 venv/
 *.db
 *.sqlite
-/clients/*/
+/clients/*/*
+!/clients/karas/
 !/clients/karas/drivedesk.config.yml

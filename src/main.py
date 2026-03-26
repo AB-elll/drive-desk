@@ -5,6 +5,7 @@ import time
 from config import load_config
 from logger import SheetLogger
 from metadata_store import init_db
+from organizer import Organizer
 from pipeline import process_file
 from watcher import Watcher
 
@@ -24,6 +25,11 @@ def run(client_id: str):
     sheet_logger = SheetLogger(config)
     interval     = config["drive"].get("watch_interval_seconds", 60)
 
+    organizer = None
+    if config.get("organizer", {}).get("enabled", False):
+        organizer = Organizer(config["drive"]["folder_id"])
+        logger.info("Organizer enabled")
+
     logger.info(f"Watching folder: {config['drive']['folder_id']} (interval: {interval}s)")
 
     while True:
@@ -33,7 +39,7 @@ def run(client_id: str):
                 logger.info(f"Detected {len(new_files)} new file(s)")
                 for file_info in new_files:
                     file_info["folder_path"] = watcher.get_folder_path(file_info["file_id"])
-                    process_file(file_info, config, sheet_logger)
+                    process_file(file_info, config, sheet_logger, organizer)
             else:
                 logger.debug("No new files")
         except Exception as e:

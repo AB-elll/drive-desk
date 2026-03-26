@@ -10,7 +10,8 @@ from metadata_store import add_notifier_queue, upsert_file
 logger = logging.getLogger(__name__)
 
 
-def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger):
+def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
+                 organizer=None):
     file_id   = file_info["file_id"]
     file_name = file_info["file_name"]
     mime_type = file_info["mime_type"]
@@ -78,6 +79,8 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger):
                     error_message="category=other/unknown: skipped")
         sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
                          confidence, low_conf, "unprocessable", {}, "other/unknown: skipped")
+        if organizer:
+            organizer.move(file_id, "other")
         _cleanup(local_path)
         logger.info(f"Skipped (other/unknown): {file_name}")
         return
@@ -112,6 +115,9 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger):
         upsert_file(file_id, status="processed", processor_refs=processor_refs)
         sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
                          confidence, low_conf, "processed", processor_refs, None)
+
+    if organizer:
+        organizer.move(file_id, cls["category"])
 
     _cleanup(local_path)
     logger.info(f"Done: {file_name} -> {('failed' if failed_processors else 'processed')}")

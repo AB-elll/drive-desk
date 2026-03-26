@@ -1,0 +1,33 @@
+client:
+  name: "合同会社Kara's"
+  id: "karas"
+
+drive:
+  folder_id: "${GOOGLE_DRIVE_FOLDER_ID}"
+  watch_interval_seconds: 60
+  include_subfolders: true
+
+classifier:
+  model: "claude-sonnet-4-6"
+  confidence_threshold: 0.8
+
+processors:
+  - type: freee
+    registration_mode: finalize
+    company_id: "${FREEE_COMPANY_ID}"
+    access_token: "${FREEE_ACCESS_TOKEN}"
+  - type: jdl_csv
+    output_folder_id: "${JDL_OUTPUT_FOLDER_ID}"
+    schedule: monthly
+
+logger:
+  type: google_spreadsheet
+  spreadsheet_id: "${LOG_SPREADSHEET_ID}"
+  sheet_name: "DriveDesk Log"
+
+organizer:
+  enabled: true   # false にすると移動しない
+
+notifier:
+  unprocessable_batch: daily
+  type: spreadsheet
