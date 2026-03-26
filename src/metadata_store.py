@@ -93,7 +93,7 @@ def is_processed(file_id: str) -> bool:
         row = conn.execute(
             "SELECT status FROM files WHERE file_id = ?", (file_id,)
         ).fetchone()
-    return row is not None and row["status"] in ("processed", "unprocessable")
+    return row is not None and row["status"] in ("processed", "unprocessable", "failed")
 
 
 def get_watcher_state(key: str) -> str | None:

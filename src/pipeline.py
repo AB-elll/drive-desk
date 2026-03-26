@@ -72,6 +72,16 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger):
                 status="pending")
 
     # ── 3. プロセッサー（実装済みのみ実行）───────────────────
+    # other/unknown は会計処理不要
+    if cls["category"] == "other":
+        upsert_file(file_id, status="unprocessable",
+                    error_message="category=other/unknown: skipped")
+        sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
+                         confidence, low_conf, "unprocessable", {}, "other/unknown: skipped")
+        _cleanup(local_path)
+        logger.info(f"Skipped (other/unknown): {file_name}")
+        return
+
     processor_refs = {}
     failed_processors = []
 

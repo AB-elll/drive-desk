@@ -57,6 +57,12 @@ def extract(file_path: str, mime_type: str, subcategory: str,
     if "```" in raw:
         raw = raw.split("```")[1].lstrip("json").strip()
 
+    raw = raw.strip()
+    if not raw:
+        # Claude が内容なしと判断した場合（画像が読み取れない等）
+        return {"primary_date": None, "dates": {}, "amount": {"total": None},
+                "transactions": [], "description": None, "raw_text": None}
+
     result = json.loads(raw)
 
     # primary_dateが未設定の場合、primary_date_keyから取得
