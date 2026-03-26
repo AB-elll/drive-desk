@@ -79,19 +79,29 @@ requires_review: false
 - **出力**: 構造化JSONデータ
 
 ### 2.4 Processor（処理）
-**責務**: 抽出データを各ツールに登録する
+**責務**: 抽出データを設定された全プロセッサーへ並列で処理する
 
 プラグイン型インターフェースを持つ。各プラグインは共通インターフェースを実装する。
 
 ```
 interface ProcessorPlugin {
+  type: "api" | "csv"
   process(extractedData: ExtractedData): ProcessResult
   validate(extractedData: ExtractedData): ValidationResult
 }
 ```
 
-**初期実装プラグイン**:
-- `FreeePlugin`: freee API v2 を使って取引・経費を登録
+**プロセッサータイプ**
+
+| タイプ | クラス | 方式 | タイミング |
+|--------|--------|------|-----------|
+| freee | `FreeePlugin` | REST API | リアルタイム |
+| jdl_csv | `JDLCsvPlugin` | CSV生成→Drive出力 | スケジュール |
+| （将来）mf | `MFPlugin` | REST API | リアルタイム |
+
+**並列実行**: 1ファイルに対して設定された全プロセッサーが同時に走る。一方が失敗しても他方の処理は継続する。
+
+> ⚠️ **TODO**: JDL IBEXのCSVインポートフォーマット仕様を調査する
 
 ### 2.5 Logger（記録）
 **責務**: 全処理をスプレッドシートに記録する
