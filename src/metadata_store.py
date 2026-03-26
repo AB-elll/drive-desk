@@ -1,137 +1,228 @@
+"""
+metadata_store — ファイル処理状態をGoogle Sheetsで管理（SQLite廃止）
+
+使用シート（LOG_SPREADSHEET_ID 内に自動作成）:
+  _DriveDesk_Files   : 処理済みファイル記録
+  _DriveDesk_State   : key-value ステート（page_token, freee_token_json 等）
+  _DriveDesk_Queue   : 通知キュー
+"""
 import json
-import sqlite3
+import logging
+import os
 from datetime import datetime
-from pathlib import Path
+
+from googleapiclient.discovery import build
+
+from google_auth import get_credentials
+
+logger = logging.getLogger(__name__)
+
+_FILES_SHEET  = "_DriveDesk_Files"
+_STATE_SHEET  = "_DriveDesk_State"
+_QUEUE_SHEET  = "_DriveDesk_Queue"
+
+_FILES_HEADERS = [
+    "file_id", "file_name", "shared_at", "primary_date", "dates",
+    "category", "subcategory", "confidence", "low_confidence",
+    "status", "processor_refs", "error_message", "updated_at",
+]
+_STATE_HEADERS = ["key", "value"]
+_QUEUE_HEADERS = ["id", "file_id", "type", "created_at", "notified"]
+
+_sheets_client = None
+_spreadsheet_id = ""
+_processed_cache = set()
 
 
-DB_PATH = Path(__file__).parent.parent / "drivedesk.db"
+def _client():
+    global _sheets_client, _spreadsheet_id
+    if _sheets_client is None:
+        _sheets_client = build("sheets", "v4", credentials=get_credentials())
+        _spreadsheet_id = os.environ["LOG_SPREADSHEET_ID"]
+    return _sheets_client
 
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _sid():
+    _client()
+    return _spreadsheet_id
 
 
 def init_db():
-    with get_conn() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS files (
-                file_id        TEXT PRIMARY KEY,
-                file_name      TEXT NOT NULL,
-                shared_at      DATETIME NOT NULL,
-                primary_date   DATE,
-                dates          TEXT,
-                category       TEXT,
-                subcategory    TEXT,
-                confidence     REAL,
-                low_confidence INTEGER DEFAULT 0,
-                status         TEXT DEFAULT 'pending',
-                processor_refs TEXT,
-                error_message  TEXT,
-                updated_at     DATETIME
-            );
-
-            CREATE TABLE IF NOT EXISTS watcher_state (
-                key   TEXT PRIMARY KEY,
-                value TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS notifier_queue (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id    TEXT,
-                type       TEXT,
-                created_at DATETIME,
-                notified   INTEGER DEFAULT 0
-            );
-        """)
+    svc = _client()
+    sid = _sid()
+    meta = svc.spreadsheets().get(
+        spreadsheetId=sid, fields="sheets.properties.title"
+    ).execute()
+    existing = {s["properties"]["title"] for s in meta.get("sheets", [])}
+    for sheet_name, headers in [
+        (_FILES_SHEET, _FILES_HEADERS),
+        (_STATE_SHEET, _STATE_HEADERS),
+        (_QUEUE_SHEET, _QUEUE_HEADERS),
+    ]:
+        if sheet_name not in existing:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=sid,
+                body={"requests": [{"addSheet": {"properties": {"title": sheet_name}}}]},
+            ).execute()
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid, range=f"{sheet_name}!A1",
+                valueInputOption="RAW", body={"values": [headers]},
+            ).execute()
+            logger.info(f"Created sheet: {sheet_name}")
+    _rebuild_cache()
 
 
-def upsert_file(file_id: str, **kwargs):
+def _rebuild_cache():
+    try:
+        rows = _read_all(_FILES_SHEET, _FILES_HEADERS)
+        for row in rows:
+            if row.get("status") in ("processed", "unprocessable", "failed"):
+                _processed_cache.add(row["file_id"])
+        logger.info(f"Cache restored: {len(_processed_cache)} processed files")
+    except Exception as e:
+        logger.warning(f"Cache rebuild failed: {e}")
+
+
+def _read_all(sheet_name, headers):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(), range=f"{sheet_name}!A1:Z",
+    ).execute()
+    rows = resp.get("values", [])
+    if len(rows) <= 1:
+        return []
+    return [dict(zip(headers, r + [""] * (len(headers) - len(r)))) for r in rows[1:]]
+
+
+def _find_row_index(sheet_name, value):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(), range=f"{sheet_name}!A1:A",
+    ).execute()
+    for i, row in enumerate(resp.get("values", []), start=1):
+        if row and row[0] == value:
+            return i
+    return None
+
+
+def _append_row(sheet_name, values):
+    _client().spreadsheets().values().append(
+        spreadsheetId=_sid(), range=f"{sheet_name}!A1",
+        valueInputOption="RAW", body={"values": [values]},
+    ).execute()
+
+
+def _update_row(sheet_name, row_idx, headers, data):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(),
+        range=f"{sheet_name}!A{row_idx}:{chr(64 + len(headers))}{row_idx}",
+    ).execute()
+    current = (resp.get("values") or [[]])[0]
+    current += [""] * (len(headers) - len(current))
+    for k, v in data.items():
+        if k in headers:
+            current[headers.index(k)] = v
+    _client().spreadsheets().values().update(
+        spreadsheetId=_sid(), range=f"{sheet_name}!A{row_idx}",
+        valueInputOption="RAW", body={"values": [current]},
+    ).execute()
+
+
+def upsert_file(file_id, **kwargs):
     kwargs["updated_at"] = datetime.utcnow().isoformat()
-    for k, v in kwargs.items():
+    for k, v in list(kwargs.items()):
         if isinstance(v, (dict, list)):
             kwargs[k] = json.dumps(v, ensure_ascii=False)
-
-    with get_conn() as conn:
-        existing = conn.execute(
-            "SELECT file_id FROM files WHERE file_id = ?", (file_id,)
-        ).fetchone()
-
-        if existing:
-            sets = ", ".join(f"{k} = ?" for k in kwargs)
-            conn.execute(
-                f"UPDATE files SET {sets} WHERE file_id = ?",
-                [*kwargs.values(), file_id],
-            )
-        else:
-            kwargs["file_id"] = file_id
-            cols = ", ".join(kwargs.keys())
-            placeholders = ", ".join("?" * len(kwargs))
-            conn.execute(
-                f"INSERT INTO files ({cols}) VALUES ({placeholders})",
-                list(kwargs.values()),
-            )
+        elif v is None:
+            kwargs[k] = ""
+    row_idx = _find_row_index(_FILES_SHEET, file_id)
+    if row_idx and row_idx > 1:
+        _update_row(_FILES_SHEET, row_idx, _FILES_HEADERS, kwargs)
+    else:
+        kwargs["file_id"] = file_id
+        row = [kwargs.get(h, "") for h in _FILES_HEADERS]
+        _append_row(_FILES_SHEET, row)
+    if kwargs.get("status") in ("processed", "unprocessable", "failed"):
+        _processed_cache.add(file_id)
 
 
-def get_file(file_id: str) -> dict | None:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM files WHERE file_id = ?", (file_id,)
-        ).fetchone()
-    if not row:
+def get_file(file_id):
+    rows = _read_all(_FILES_SHEET, _FILES_HEADERS)
+    for row in rows:
+        if row.get("file_id") == file_id:
+            for field in ("dates", "processor_refs"):
+                if row.get(field):
+                    try:
+                        row[field] = json.loads(row[field])
+                    except Exception:
+                        pass
+            return row
+    return None
+
+
+def is_processed(file_id):
+    return file_id in _processed_cache
+
+
+def get_watcher_state(key):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(), range=f"{_STATE_SHEET}!A1:B",
+    ).execute()
+    for row in resp.get("values", []):
+        if len(row) >= 2 and row[0] == key:
+            return row[1]
+    return None
+
+
+def set_watcher_state(key, value):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(), range=f"{_STATE_SHEET}!A1:A",
+    ).execute()
+    for i, row in enumerate(resp.get("values", []), start=1):
+        if row and row[0] == key:
+            _client().spreadsheets().values().update(
+                spreadsheetId=_sid(), range=f"{_STATE_SHEET}!B{i}",
+                valueInputOption="RAW", body={"values": [[value]]},
+            ).execute()
+            return
+    _append_row(_STATE_SHEET, [key, value])
+
+
+def backup_freee_token(token_json):
+    try:
+        set_watcher_state("freee_token_json", token_json)
+        logger.debug("freee token backed up to Sheets")
+    except Exception as e:
+        logger.warning(f"freee token backup failed: {e}")
+
+
+def restore_freee_token():
+    try:
+        return get_watcher_state("freee_token_json")
+    except Exception as e:
+        logger.warning(f"freee token restore failed: {e}")
         return None
-    result = dict(row)
-    for field in ("dates", "processor_refs"):
-        if result.get(field):
-            result[field] = json.loads(result[field])
-    return result
 
 
-def is_processed(file_id: str) -> bool:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT status FROM files WHERE file_id = ?", (file_id,)
-        ).fetchone()
-    return row is not None and row["status"] in ("processed", "unprocessable", "failed")
+def add_notifier_queue(file_id, type):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(), range=f"{_QUEUE_SHEET}!A1:A",
+    ).execute()
+    next_id = max(0, len(resp.get("values", [])) - 1) + 1
+    _append_row(_QUEUE_SHEET, [next_id, file_id, type, datetime.utcnow().isoformat(), "0"])
 
 
-def get_watcher_state(key: str) -> str | None:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT value FROM watcher_state WHERE key = ?", (key,)
-        ).fetchone()
-    return row["value"] if row else None
+def get_pending_notifications(type):
+    rows = _read_all(_QUEUE_SHEET, _QUEUE_HEADERS)
+    return [r for r in rows if r.get("type") == type and r.get("notified") == "0"]
 
 
-def set_watcher_state(key: str, value: str):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO watcher_state (key, value) VALUES (?, ?)",
-            (key, value),
-        )
-
-
-def add_notifier_queue(file_id: str, type: str):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO notifier_queue (file_id, type, created_at) VALUES (?, ?, ?)",
-            (file_id, type, datetime.utcnow().isoformat()),
-        )
-
-
-def get_pending_notifications(type: str) -> list[dict]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM notifier_queue WHERE type = ? AND notified = 0",
-            (type,),
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def mark_notified(ids: list[int]):
-    with get_conn() as conn:
-        conn.execute(
-            f"UPDATE notifier_queue SET notified = 1 WHERE id IN ({','.join('?' * len(ids))})",
-            ids,
-        )
+def mark_notified(ids):
+    resp = _client().spreadsheets().values().get(
+        spreadsheetId=_sid(), range=f"{_QUEUE_SHEET}!A1:A",
+    ).execute()
+    str_ids = [str(x) for x in ids]
+    for i, row in enumerate(resp.get("values", []), start=1):
+        if row and row[0] in str_ids:
+            _client().spreadsheets().values().update(
+                spreadsheetId=_sid(), range=f"{_QUEUE_SHEET}!E{i}",
+                valueInputOption="RAW", body={"values": [["1"]]},
+            ).execute()

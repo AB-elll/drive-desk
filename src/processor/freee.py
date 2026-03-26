@@ -74,8 +74,23 @@ class FreeePlugin(ProcessorPlugin):
             return self._token_cache["access_token"]
 
         token_path = Path(os.environ.get("FREEE_TOKEN_PATH", str(TOKEN_PATH)))
+
+        # ローカルファイルから読み込み
         if token_path.exists():
             data = json.loads(token_path.read_text())
+            if data.get("expires_at", 0) > time.time() + 60:
+                self._token_cache = data
+                return data["access_token"]
+            return self._refresh_token(data["refresh_token"], token_path)
+
+        # ローカルなし → Sheets バックアップから復元
+        from metadata_store import restore_freee_token
+        backed_up = restore_freee_token()
+        if backed_up:
+            logger.info("freee token restored from Sheets backup")
+            data = json.loads(backed_up)
+            token_path.parent.mkdir(parents=True, exist_ok=True)
+            token_path.write_text(json.dumps(data))
             if data.get("expires_at", 0) > time.time() + 60:
                 self._token_cache = data
                 return data["access_token"]
@@ -107,6 +122,11 @@ class FreeePlugin(ProcessorPlugin):
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(json.dumps(data))
         self._token_cache = data
+
+        # Sheets にバックアップ
+        from metadata_store import backup_freee_token
+        backup_freee_token(json.dumps(data))
+
         return data["access_token"]
 
     # ── 取引データ構築 ────────────────────────────────────────
