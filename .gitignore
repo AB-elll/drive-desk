@@ -1,0 +1,11 @@
+.env
+*.json
+!example.config.yml
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.db
+*.sqlite
+/clients/*/
+!/clients/karas/drivedesk.config.yml
