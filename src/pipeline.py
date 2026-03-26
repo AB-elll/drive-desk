@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+import time
 
 from classifier import classify
 from extractor import extract
@@ -18,13 +18,24 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
     shared_at = file_info["shared_at"]
     local_path = file_info["local_path"]
     folder_path = file_info.get("folder_path", "/")
+    dbg = sheet_logger.debug
 
     logger.info(f"Processing: {file_name} ({mime_type})")
 
     # ── 1. 分類 ──────────────────────────────────────────────
+    t0 = time.monotonic()
     try:
-        cls = classify(file_name, mime_type, folder_path, config, local_path=local_path)
+        cls, cls_meta = classify(file_name, mime_type, folder_path, config, local_path=local_path)
+        dbg.log(file_id, file_name, "classify", "ok",
+                int((time.monotonic() - t0) * 1000), {
+                    "result": cls,
+                    "claude_duration_ms": cls_meta.get("duration_ms"),
+                    "raw_response": cls_meta.get("raw_response"),
+                    "prompt_preview": cls_meta.get("prompt_preview"),
+                })
     except Exception as e:
+        dbg.log_error(file_id, file_name, "classify", e,
+                      {"file_name": file_name, "mime_type": mime_type})
         logger.error(f"Classification failed: {e}")
         upsert_file(file_id, status="unprocessable", error_message=str(e))
         add_notifier_queue(file_id, "unprocessable")
@@ -50,10 +61,21 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
                 status="pending")
 
     # ── 2. 抽出 ──────────────────────────────────────────────
+    t0 = time.monotonic()
     try:
         model = config.get("classifier", {}).get("model", "claude-sonnet-4-6")
-        extracted = extract(local_path, mime_type, cls["subcategory"], primary_key, model)
+        extracted, ext_meta = extract(local_path, mime_type, cls["subcategory"], primary_key, model)
+        dbg.log(file_id, file_name, "extract", "ok",
+                int((time.monotonic() - t0) * 1000), {
+                    "subcategory": cls["subcategory"],
+                    "result": {k: v for k, v in extracted.items() if k != "raw_text"},
+                    "raw_text_len": len(extracted.get("raw_text") or ""),
+                    "claude_duration_ms": ext_meta.get("duration_ms"),
+                    "raw_response": ext_meta.get("raw_response"),
+                })
     except Exception as e:
+        dbg.log_error(file_id, file_name, "extract", e,
+                      {"subcategory": cls["subcategory"]})
         logger.error(f"Extraction failed: {e}")
         upsert_file(file_id, status="unprocessable", error_message=str(e))
         add_notifier_queue(file_id, "unprocessable")
@@ -72,13 +94,15 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
                 dates=dates,
                 status="pending")
 
-    # ── 3. プロセッサー（実装済みのみ実行）───────────────────
+    # ── 3. プロセッサー ───────────────────────────────────────
     # other/unknown は会計処理不要
     if cls["category"] == "other":
         upsert_file(file_id, status="unprocessable",
                     error_message="category=other/unknown: skipped")
         sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
                          confidence, low_conf, "unprocessable", {}, "other/unknown: skipped")
+        dbg.log(file_id, file_name, "pipeline", "skip", 0,
+                {"reason": "category=other/unknown"})
         if organizer:
             organizer.move(file_id, "other")
         _cleanup(local_path)
@@ -90,17 +114,29 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
 
     for proc_config in config.get("processors", []):
         proc_type = proc_config.get("type")
+        t0 = time.monotonic()
         try:
             plugin = _load_plugin(proc_type, proc_config)
             result = plugin.process(file_id, extracted)
+            duration_ms = int((time.monotonic() - t0) * 1000)
             if result.success:
                 processor_refs[proc_type] = result.refs
+                dbg.log(file_id, file_name, proc_type, "ok", duration_ms, {
+                    "refs": result.refs,
+                    "transactions_count": len(transactions),
+                })
                 logger.info(f"Processor [{proc_type}] OK: {result.refs}")
             else:
                 raise Exception(result.error)
         except NotImplementedError:
+            dbg.log(file_id, file_name, proc_type, "skip",
+                    int((time.monotonic() - t0) * 1000), {"reason": "not implemented"})
             logger.info(f"Processor [{proc_type}] skipped (not implemented)")
         except Exception as e:
+            dbg.log_error(file_id, file_name, proc_type, e, {
+                "extracted_summary": {k: v for k, v in extracted.items()
+                                      if k not in ("raw_text", "transactions")},
+            })
             logger.error(f"Processor [{proc_type}] failed: {e}")
             failed_processors.append(f"{proc_type}: {e}")
 
@@ -111,13 +147,27 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
                     processor_refs=processor_refs, error_message=error_msg)
         sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
                          confidence, low_conf, "failed", processor_refs, error_msg)
+        dbg.log(file_id, file_name, "pipeline", "error", 0, {
+            "failed_processors": failed_processors,
+            "succeeded_processors": list(processor_refs.keys()),
+        })
     else:
         upsert_file(file_id, status="processed", processor_refs=processor_refs)
         sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
                          confidence, low_conf, "processed", processor_refs, None)
+        dbg.log(file_id, file_name, "pipeline", "ok", 0, {
+            "processors": list(processor_refs.keys()),
+            "refs": processor_refs,
+        })
 
     if organizer:
-        organizer.move(file_id, cls["category"])
+        t0 = time.monotonic()
+        try:
+            organizer.move(file_id, cls["category"])
+            dbg.log(file_id, file_name, "organizer", "ok",
+                    int((time.monotonic() - t0) * 1000), {"category": cls["category"]})
+        except Exception as e:
+            dbg.log_error(file_id, file_name, "organizer", e)
 
     _cleanup(local_path)
     logger.info(f"Done: {file_name} -> {('failed' if failed_processors else 'processed')}")

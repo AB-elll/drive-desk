@@ -199,5 +199,17 @@ class FreeePlugin(ProcessorPlugin):
             resp = requests.post(f"{FREEE_API_BASE}/deals",
                                  json=deal, headers=headers)
 
-        resp.raise_for_status()
+        # request/response を詳細ログに残す（エラー原因追跡用）
+        logger.debug(
+            "freee POST /deals status=%s request=%s response=%s",
+            resp.status_code,
+            json.dumps(deal, ensure_ascii=False),
+            resp.text[:500],
+        )
+
+        if not resp.ok:
+            raise RuntimeError(
+                f"freee API error {resp.status_code}: {resp.text[:300]}"
+            )
+
         return resp.json()["deal"]["id"]
