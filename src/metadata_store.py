@@ -50,6 +50,16 @@ def init_db():
                 created_at DATETIME,
                 notified   INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS settlements (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_file_id     TEXT NOT NULL,
+                deal_id          INTEGER NOT NULL,
+                amount           INTEGER NOT NULL,
+                credit_date      DATE,
+                status           TEXT,
+                created_at       DATETIME
+            );
         """)
 
 
@@ -130,6 +140,31 @@ def restore_freee_token() -> str | None:
         return get_watcher_state("freee_token_json")
     except Exception:
         return None
+
+
+def add_settlement(bank_file_id: str, deal_id: int, amount: int,
+                   credit_date: str | None, status: str):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO settlements (bank_file_id, deal_id, amount, credit_date, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (bank_file_id, deal_id, amount, credit_date, status,
+             datetime.utcnow().isoformat()),
+        )
+
+
+def get_settlements(bank_file_id: str | None = None) -> list[dict]:
+    with get_conn() as conn:
+        if bank_file_id:
+            rows = conn.execute(
+                "SELECT * FROM settlements WHERE bank_file_id = ? ORDER BY created_at DESC",
+                (bank_file_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM settlements ORDER BY created_at DESC LIMIT 100"
+            ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def add_notifier_queue(file_id: str, type: str):

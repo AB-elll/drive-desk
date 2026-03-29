@@ -5,7 +5,7 @@ import time
 from classifier import classify
 from extractor import extract
 from logger import SheetLogger
-from metadata_store import add_notifier_queue, upsert_file
+from metadata_store import add_notifier_queue, add_settlement, upsert_file
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,10 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
             "refs": processor_refs,
         })
 
+    # ── 5. 消し込み（bank_statement のみ）────────────────────
+    if cls["subcategory"] == "bank_statement" and not failed_processors:
+        _try_settle(file_id, file_name, extracted, config, dbg)
+
     if organizer:
         t0 = time.monotonic()
         try:
@@ -193,6 +197,49 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
 
     _cleanup(local_path)
     logger.info(f"Done: {file_name} -> {('failed' if failed_processors else 'processed')}")
+
+
+def _try_settle(file_id: str, file_name: str, extracted: dict,
+                config: dict, dbg) -> None:
+    """bank_statement 処理後に未決済 income deals と消し込みを試みる"""
+    import os
+    freee_cfg = next((p for p in config.get("processors", [])
+                      if p.get("type") == "freee"), None)
+    if not freee_cfg:
+        return
+
+    try:
+        from processor.freee import FreeePlugin
+        from processor.freee_settler import FreeeSettler
+
+        plugin = FreeePlugin(freee_cfg)
+        token = plugin._get_token()
+        company_id = int(os.environ.get("FREEE_COMPANY_ID",
+                                        freee_cfg.get("company_id", 0)))
+        settler = FreeeSettler(company_id)
+
+        t0 = time.monotonic()
+        results = settler.settle_from_bank_statement(token, extracted)
+        duration_ms = int((time.monotonic() - t0) * 1000)
+
+        for r in results:
+            add_settlement(
+                bank_file_id=file_id,
+                deal_id=r["deal_id"],
+                amount=r["amount"],
+                credit_date=r.get("credit_date"),
+                status=r["status"],
+            )
+
+        dbg.log(file_id, file_name, "settler", "ok", duration_ms, {
+            "matched": len(results),
+            "results": results,
+        })
+        logger.info(f"Settlement: {len(results)} deals matched for {file_name}")
+
+    except Exception as e:
+        logger.warning(f"Settlement skipped: {e}")
+        dbg.log(file_id, file_name, "settler", "skip", 0, {"reason": str(e)})
 
 
 def _load_plugin(proc_type: str, proc_config: dict):
