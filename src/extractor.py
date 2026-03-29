@@ -83,7 +83,7 @@ def _extract_with_gemini(file_path: str, mime_type: str) -> tuple[dict, dict]:
             import pathlib
             pdf_bytes = pathlib.Path(file_path).read_bytes()
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=[
                     types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
                     prompt,
@@ -93,7 +93,7 @@ def _extract_with_gemini(file_path: str, mime_type: str) -> tuple[dict, dict]:
             from PIL import Image
             img = Image.open(file_path)
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=[prompt, img],
             )
     except Exception as e:
@@ -105,7 +105,7 @@ def _extract_with_gemini(file_path: str, mime_type: str) -> tuple[dict, dict]:
         raw = raw.split("```")[1].lstrip("json").strip()
 
     result = json.loads(raw)
-    return result, {"duration_ms": duration_ms, "raw_response": raw, "model": "gemini-2.0-flash"}
+    return result, {"duration_ms": duration_ms, "raw_response": raw, "model": "gemini-2.5-flash"}
 
 
 def extract(file_path: str, mime_type: str, subcategory: str,
