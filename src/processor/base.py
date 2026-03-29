@@ -17,7 +17,9 @@ class ProcessorPlugin(ABC):
         self.config = config
 
     @abstractmethod
-    def process(self, file_id: str, extracted_data: dict) -> ProcessResult:
+    def process(self, file_id: str, extracted_data: dict,
+                local_path: str | None = None,
+                mime_type: str | None = None) -> ProcessResult:
         """抽出データを外部ツールへ登録する"""
         ...
 

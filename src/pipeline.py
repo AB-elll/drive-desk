@@ -138,7 +138,8 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
         t0 = time.monotonic()
         try:
             plugin = _load_plugin(proc_type, proc_config)
-            result = plugin.process(file_id, extracted)
+            result = plugin.process(file_id, extracted,
+                                    local_path=local_path, mime_type=mime_type)
             duration_ms = int((time.monotonic() - t0) * 1000)
             if result.success:
                 processor_refs[proc_type] = result.refs

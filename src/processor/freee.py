@@ -41,7 +41,9 @@ class FreeePlugin(ProcessorPlugin):
 
     # ── 公開インターフェース ───────────────────────────────────
 
-    def process(self, file_id: str, extracted_data: dict) -> ProcessResult:
+    def process(self, file_id: str, extracted_data: dict,
+                local_path: str | None = None,
+                mime_type: str | None = None) -> ProcessResult:
         try:
             token = self._get_token()
             transactions = self._build_transactions(extracted_data)
@@ -53,8 +55,19 @@ class FreeePlugin(ProcessorPlugin):
                     error="No transactions to register",
                 )
 
+            # 証憑アップロード（ファイルがある場合）
+            receipt_id = None
+            if local_path:
+                try:
+                    receipt_id = self._upload_receipt(token, local_path, mime_type, extracted_data)
+                    logger.info(f"freee receipt uploaded: {receipt_id}")
+                except Exception as e:
+                    logger.warning(f"freee receipt upload failed (continuing): {e}")
+
             refs = []
             for txn in transactions:
+                if receipt_id:
+                    txn["receipt_ids"] = [receipt_id]
                 deal_id = self._create_deal(token, txn)
                 refs.append(str(deal_id))
                 logger.info(f"freee deal created: {deal_id}")
@@ -219,6 +232,52 @@ class FreeePlugin(ProcessorPlugin):
         return items[0]["id"] if items else 0
 
     # ── freee API呼び出し ─────────────────────────────────────
+
+    def _upload_receipt(self, token: str, local_path: str,
+                        mime_type: str | None, extracted: dict) -> int:
+        """元ファイルを freee の証憑としてアップロードし receipt_id を返す"""
+        issue_date = extracted.get("primary_date") or datetime.today().strftime("%Y-%m-%d")
+        amount = (extracted.get("amount") or {}).get("total") or 0
+        description = extracted.get("description") or extracted.get("counterpart") or ""
+
+        with open(local_path, "rb") as f:
+            file_bytes = f.read()
+
+        file_name = Path(local_path).name
+        content_type = mime_type or "application/octet-stream"
+
+        resp = requests.post(
+            f"{FREEE_API_BASE}/receipts",
+            headers={"Authorization": f"Bearer {token}"},
+            data={
+                "company_id": self.company_id,
+                "issue_date": issue_date,
+                "amount": int(amount),
+                "memo": description,
+            },
+            files={"receipt": (file_name, file_bytes, content_type)},
+        )
+
+        if resp.status_code == 429:
+            wait = int(resp.headers.get("Retry-After", 60))
+            logger.warning(f"Rate limited on receipt upload. Waiting {wait}s...")
+            time.sleep(wait)
+            resp = requests.post(
+                f"{FREEE_API_BASE}/receipts",
+                headers={"Authorization": f"Bearer {token}"},
+                data={
+                    "company_id": self.company_id,
+                    "issue_date": issue_date,
+                    "amount": int(amount),
+                    "memo": description,
+                },
+                files={"receipt": (file_name, file_bytes, content_type)},
+            )
+
+        if not resp.ok:
+            raise RuntimeError(f"freee receipt upload error {resp.status_code}: {resp.text[:200]}")
+
+        return resp.json()["receipt"]["id"]
 
     def _get_account_items(self) -> list:
         if self._account_items_cache is not None:
