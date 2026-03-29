@@ -6,6 +6,8 @@ PRIMARY_DATE_RULES = {
     "receipt":          "purchase_date",
     "official_receipt": "payment_date",
     "invoice":          "due_date",
+    "issued_invoice":   "due_date",
+    "payment_notice":   "payment_date",
     "delivery_note":    "delivery_date",
     "quotation":        "issue_date",
     "bank_statement":   "period_start",
@@ -37,16 +39,27 @@ SYSTEM_PROMPT = """
 }
 
 サブカテゴリ一覧:
-- accounting: receipt, official_receipt, invoice, delivery_note, quotation, bank_statement, card_statement, contract
+- accounting:
+    受取（支出）: receipt, official_receipt, invoice, delivery_note, quotation, bank_statement, card_statement
+    発行（収入）: issued_invoice（自社が発行した請求書）
+    収入通知:     payment_notice（行政・保険機関等からの支払決定通知・入金通知）
+    共通:         contract
 - labor: timesheet, payslip, employment_contract, resignation, social_insurance, health_check
 - legal: registration, contract
 - management: license, permit, qualification
 - other: unknown
 
+【収入 vs 支出の判定基準】
+- issued_invoice: 自社名が発行者欄にある請求書。相手方が支払う側。
+- payment_notice: 行政機関・保険機関・取引先から「支払います」と通知してくる書類。
+  例）支払決定通知書、診療報酬支払通知、入金案内、支払通知書
+- invoice（受取）: 相手方から届いた請求書。自社が支払う側。
+- receipt（受取）: 自社が支払った際の領収書。
+
 managementカテゴリの判定基準:
-- license: 薬局開設許可証・保険薬局指定通知など、事業所に紐づく許認可証
-- permit: 麻薬取扱者免許・毒物劇物取扱責任者など、特定業務の取扱許可
-- qualification: 薬剤師免許・登録販売者資格など、従業員個人の資格・免許証
+- license: 事業所に紐づく許認可証（業種問わず）
+- permit: 特定業務の取扱許可証
+- qualification: 従業員個人の資格・免許証
 """
 
 

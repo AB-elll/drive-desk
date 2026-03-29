@@ -9,6 +9,7 @@ SYSTEM_PROMPT = """
 
 必ず以下のJSON形式で返答してください：
 {
+  "deal_type": "expense" | "income",
   "primary_date": "YYYY-MM-DD または null",
   "dates": {
     "<date_key>": "YYYY-MM-DD"
@@ -18,7 +19,7 @@ SYSTEM_PROMPT = """
     "subtotal": <税抜小計または null>,
     "tax": <消費税額または null>
   },
-  "counterpart": "<取引先名または null>",
+  "counterpart": "<取引先・発行機関名または null>",
   "description": "<摘要または null>",
   "account_candidate": "<勘定科目候補または null>",
   "line_items": [
@@ -39,6 +40,12 @@ SYSTEM_PROMPT = """
   "raw_text": "<OCRで読み取った生テキスト>"
 }
 
+【deal_type の判定基準】
+- "income" : 自社に入金される書類
+    例）自社発行の請求書、行政・保険機関からの支払決定通知書・入金通知、売上明細
+- "expense": 自社が支払う書類
+    例）仕入先・サービス業者からの請求書、レシート、領収書
+
 【line_items と transactions の使い分け】
 - line_items: 請求書・レシートの品目行（同一日付・同一取引の複数品目）。品目が1つでも必ず配列で返す。
 - transactions: カード明細・銀行明細など、日付が異なる複数取引。該当しない場合は空配列 []。
@@ -46,6 +53,7 @@ SYSTEM_PROMPT = """
 datesキーの例:
 - レシート: purchase_date
 - 請求書: issue_date, due_date
+- 支払決定通知: target_period（対象月）, payment_date（支払予定日）
 - 給与明細: period_start, period_end, payment_date
 - カード明細: transaction_date, closing_date, payment_date
 """

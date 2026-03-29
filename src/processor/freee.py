@@ -132,11 +132,13 @@ class FreeePlugin(ProcessorPlugin):
     # ── 取引データ構築 ────────────────────────────────────────
 
     def _build_transactions(self, extracted: dict) -> list[dict]:
+        deal_type = self._deal_type(extracted)
+
         # カード明細・銀行明細: 日付が異なる複数取引 → 別々の deal
         transactions = extracted.get("transactions", [])
         if transactions:
             return [self._build_deal(t["date"], t["amount"], t.get("description", ""),
-                                     t.get("account_candidate")) for t in transactions]
+                                     t.get("account_candidate"), deal_type) for t in transactions]
 
         # 請求書・レシートの品目行: 同一 deal に複数 details
         line_items = extracted.get("line_items", [])
@@ -151,11 +153,16 @@ class FreeePlugin(ProcessorPlugin):
 
         if not amount:
             return []
-        return [self._build_deal(date, amount, description, account_candidate)]
+        return [self._build_deal(date, amount, description, account_candidate, deal_type)]
+
+    def _deal_type(self, extracted: dict) -> str:
+        """抽出データから freee の取引種別を決定する"""
+        return "income" if extracted.get("deal_type") == "income" else "expense"
 
     def _build_deal_with_line_items(self, extracted: dict, line_items: list) -> dict:
         """請求書の品目を1つの deal・複数 details として構築する"""
         date = extracted.get("primary_date") or datetime.today().strftime("%Y-%m-%d")
+        deal_type = self._deal_type(extracted)
         details = []
         for item in line_items:
             details.append({
@@ -167,17 +174,17 @@ class FreeePlugin(ProcessorPlugin):
         return {
             "company_id": self.company_id,
             "issue_date": date,
-            "type": "expense",
+            "type": deal_type,
             "details": details,
         }
 
     def _build_deal(self, issue_date: str, amount: float, description: str,
-                    account_candidate: str | None) -> dict:
+                    account_candidate: str | None, deal_type: str = "expense") -> dict:
         account_item_id = self._resolve_account_item(account_candidate)
         return {
             "company_id": self.company_id,
             "issue_date": issue_date,
-            "type": "expense",
+            "type": deal_type,
             "details": [{
                 "account_item_id": account_item_id,
                 "tax_code": 1,
