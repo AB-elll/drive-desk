@@ -153,16 +153,41 @@ class FreeeSettler:
 
     def _update_deal_description(self, token: str, deal_id: int, description: str) -> bool:
         """deal の ref_number フィールドに消し込みメモを記録する"""
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        # 既存 deal を取得して必須フィールドを維持しながら更新
+        get_resp = requests.get(
+            f"{FREEE_API_BASE}/deals/{deal_id}",
+            params={"company_id": self.company_id},
+            headers=headers,
+        )
+        if not get_resp.ok:
+            logger.warning(f"FreeeSettler: get deal {deal_id} failed {get_resp.status_code}")
+            return False
+
+        deal = get_resp.json().get("deal", {})
+        payload = {
+            "company_id": self.company_id,
+            "issue_date": deal["issue_date"],
+            "type": deal["type"],
+            "ref_number": description[:255],
+            "details": [
+                {
+                    "id": d["id"],
+                    "account_item_id": d["account_item_id"],
+                    "tax_code": d["tax_code"],
+                    "amount": d["amount"],
+                    "description": d.get("description", ""),
+                }
+                for d in deal.get("details", [])
+            ],
+        }
         resp = requests.put(
             f"{FREEE_API_BASE}/deals/{deal_id}",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "company_id": self.company_id,
-                "ref_number": description[:255],
-            },
+            headers=headers,
+            json=payload,
         )
         if resp.ok:
             return True
