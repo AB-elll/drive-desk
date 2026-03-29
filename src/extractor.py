@@ -14,13 +14,20 @@ SYSTEM_PROMPT = """
     "<date_key>": "YYYY-MM-DD"
   },
   "amount": {
-    "total": <数値または null>,
-    "subtotal": <税抜金額または null>,
+    "total": <税込合計または null>,
+    "subtotal": <税抜小計または null>,
     "tax": <消費税額または null>
   },
   "counterpart": "<取引先名または null>",
   "description": "<摘要または null>",
   "account_candidate": "<勘定科目候補または null>",
+  "line_items": [
+    {
+      "description": "<品目名>",
+      "amount": <税抜金額（数値）>,
+      "account_candidate": "<勘定科目候補または null>"
+    }
+  ],
   "transactions": [
     {
       "date": "YYYY-MM-DD",
@@ -32,14 +39,15 @@ SYSTEM_PROMPT = """
   "raw_text": "<OCRで読み取った生テキスト>"
 }
 
+【line_items と transactions の使い分け】
+- line_items: 請求書・レシートの品目行（同一日付・同一取引の複数品目）。品目が1つでも必ず配列で返す。
+- transactions: カード明細・銀行明細など、日付が異なる複数取引。該当しない場合は空配列 []。
+
 datesキーの例:
 - レシート: purchase_date
 - 請求書: issue_date, due_date
 - 給与明細: period_start, period_end, payment_date
 - カード明細: transaction_date, closing_date, payment_date
-
-transactionsは複数取引が含まれる場合（カード明細・銀行明細等）に使用。
-単一取引の場合は空配列 []。
 """
 
 MANAGEMENT_SYSTEM_PROMPT = """

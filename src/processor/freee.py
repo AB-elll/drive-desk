@@ -132,11 +132,18 @@ class FreeePlugin(ProcessorPlugin):
     # ── 取引データ構築 ────────────────────────────────────────
 
     def _build_transactions(self, extracted: dict) -> list[dict]:
+        # カード明細・銀行明細: 日付が異なる複数取引 → 別々の deal
         transactions = extracted.get("transactions", [])
         if transactions:
             return [self._build_deal(t["date"], t["amount"], t.get("description", ""),
                                      t.get("account_candidate")) for t in transactions]
 
+        # 請求書・レシートの品目行: 同一 deal に複数 details
+        line_items = extracted.get("line_items", [])
+        if line_items:
+            return [self._build_deal_with_line_items(extracted, line_items)]
+
+        # フォールバック: 合計1行
         amount = (extracted.get("amount") or {}).get("total")
         date = extracted.get("primary_date") or datetime.today().strftime("%Y-%m-%d")
         description = extracted.get("description", "")
@@ -146,18 +153,34 @@ class FreeePlugin(ProcessorPlugin):
             return []
         return [self._build_deal(date, amount, description, account_candidate)]
 
+    def _build_deal_with_line_items(self, extracted: dict, line_items: list) -> dict:
+        """請求書の品目を1つの deal・複数 details として構築する"""
+        date = extracted.get("primary_date") or datetime.today().strftime("%Y-%m-%d")
+        details = []
+        for item in line_items:
+            details.append({
+                "account_item_id": self._resolve_account_item(item.get("account_candidate")),
+                "tax_code": 1,
+                "amount": int(item["amount"]),
+                "description": item.get("description", ""),
+            })
+        return {
+            "company_id": self.company_id,
+            "issue_date": date,
+            "type": "expense",
+            "details": details,
+        }
+
     def _build_deal(self, issue_date: str, amount: float, description: str,
                     account_candidate: str | None) -> dict:
         account_item_id = self._resolve_account_item(account_candidate)
-        deal_type = "expense"  # 支出がデフォルト
-
         return {
             "company_id": self.company_id,
             "issue_date": issue_date,
-            "type": deal_type,
+            "type": "expense",
             "details": [{
                 "account_item_id": account_item_id,
-                "tax_code": 1,         # 10%課税（後でロジック拡充）
+                "tax_code": 1,
                 "amount": int(amount),
                 "description": description,
             }],
