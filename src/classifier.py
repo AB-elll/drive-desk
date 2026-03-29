@@ -18,6 +18,10 @@ PRIMARY_DATE_RULES = {
     "social_insurance": "effective_date",
     "health_check":     "examination_date",
     "registration":     "registration_date",
+    # management
+    "license":          "expiry_date",
+    "permit":           "expiry_date",
+    "qualification":    "expiry_date",
 }
 
 SYSTEM_PROMPT = """
@@ -26,7 +30,7 @@ SYSTEM_PROMPT = """
 
 必ず以下のJSON形式で返答してください：
 {
-  "category": "accounting" | "labor" | "legal" | "other",
+  "category": "accounting" | "labor" | "legal" | "management" | "other",
   "subcategory": "<下記のサブカテゴリ>",
   "confidence": 0.0〜1.0,
   "reason": "<判定理由を1文で>"
@@ -36,7 +40,13 @@ SYSTEM_PROMPT = """
 - accounting: receipt, official_receipt, invoice, delivery_note, quotation, bank_statement, card_statement, contract
 - labor: timesheet, payslip, employment_contract, resignation, social_insurance, health_check
 - legal: registration, contract
+- management: license, permit, qualification
 - other: unknown
+
+managementカテゴリの判定基準:
+- license: 薬局開設許可証・保険薬局指定通知など、事業所に紐づく許認可証
+- permit: 麻薬取扱者免許・毒物劇物取扱責任者など、特定業務の取扱許可
+- qualification: 薬剤師免許・登録販売者資格など、従業員個人の資格・免許証
 """
 
 
