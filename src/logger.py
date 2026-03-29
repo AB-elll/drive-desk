@@ -17,6 +17,7 @@ class SheetLogger:
         self.sheet_name = config["logger"].get("sheet_name", "DriveDesk Log")
         self._sheets = build("sheets", "v4", credentials=get_credentials())
         self._debug = DebugLogger(self.spreadsheet_id, self._sheets)
+        self._ensure_log_sheet()
 
     def log(self, file_id: str, file_name: str, shared_at: str,
             primary_date: str | None, category: str | None,
@@ -44,6 +45,31 @@ class SheetLogger:
             ).execute()
         except Exception as e:
             logger.error(f"Sheet logging failed: {e}")
+
+    def _ensure_log_sheet(self):
+        try:
+            meta = self._sheets.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id,
+                fields="sheets.properties.title",
+            ).execute()
+            titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
+            if self.sheet_name not in titles:
+                self._sheets.spreadsheets().batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={"requests": [{"addSheet": {"properties": {"title": self.sheet_name}}}]},
+                ).execute()
+                headers = ["timestamp", "file_name", "file_id", "shared_at",
+                           "primary_date", "category", "confidence",
+                           "low_confidence", "result", "processor_refs", "error"]
+                self._sheets.spreadsheets().values().update(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"'{self.sheet_name}'!A1",
+                    valueInputOption="RAW",
+                    body={"values": [headers]},
+                ).execute()
+                logger.info(f"Created sheet: {self.sheet_name}")
+        except Exception as e:
+            logger.error(f"SheetLogger _ensure_log_sheet failed: {e}")
 
     @property
     def debug(self) -> "DebugLogger":
