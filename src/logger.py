@@ -38,7 +38,7 @@ class SheetLogger:
         try:
             self._sheets.spreadsheets().values().append(
                 spreadsheetId=self.spreadsheet_id,
-                range=f"{self.sheet_name}!A1",
+                range=f"'{self.sheet_name}'!A1",
                 valueInputOption="RAW",
                 body={"values": [row]},
             ).execute()

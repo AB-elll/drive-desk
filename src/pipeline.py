@@ -109,15 +109,15 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
         logger.info(f"Skipped (other/unknown): {file_name}")
         return
 
-    # management (license/permit/qualification) は会計処理不要 → 抽出のみで processed
-    if cls["category"] == "management":
+    # management/legal は会計処理不要 → 抽出のみで processed
+    if cls["category"] in ("management", "legal"):
         upsert_file(file_id, status="processed", processor_refs={})
         sheet_logger.log(file_id, file_name, shared_at, primary_date, category,
                          confidence, low_conf, "processed", {}, None)
         dbg.log(file_id, file_name, "pipeline", "ok", 0,
-                {"reason": "management: extraction only, no accounting processor"})
+                {"reason": f"{cls['category']}: extraction only, no accounting processor"})
         if organizer:
-            organizer.move(file_id, "management")
+            organizer.move(file_id, cls["category"])
         _cleanup(local_path)
         logger.info(f"Done (management, no processor): {file_name}")
         return
