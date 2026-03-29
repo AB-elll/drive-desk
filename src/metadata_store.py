@@ -15,6 +15,11 @@ def get_conn() -> sqlite3.Connection:
 
 def init_db():
     with get_conn() as conn:
+        # 既存 DB に extracted_fields 列がなければ追加（冪等）
+        try:
+            conn.execute("ALTER TABLE files ADD COLUMN extracted_fields TEXT")
+        except Exception:
+            pass
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS files (
                 file_id        TEXT PRIMARY KEY,
@@ -29,6 +34,7 @@ def init_db():
                 status         TEXT DEFAULT 'pending',
                 processor_refs TEXT,
                 error_message  TEXT,
+                extracted_fields TEXT,
                 updated_at     DATETIME
             );
 

@@ -23,6 +23,7 @@ CATEGORY_FOLDER = {
     "accounting": "経理",
     "labor":      "労務",
     "legal":      "法務",
+    "management": "管理書類",
     "other":      "未分類",
 }
 

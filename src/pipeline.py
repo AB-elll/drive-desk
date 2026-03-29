@@ -89,9 +89,17 @@ def process_file(file_info: dict, config: dict, sheet_logger: SheetLogger,
     transactions = extracted.get("transactions", [])
     logger.info(f"Extracted: primary_date={primary_date}, transactions={len(transactions)}")
 
+    # management/legal は免許名・氏名・交付機関など日付以外のフィールドも保存
+    _SKIP = {"primary_date", "dates", "transactions", "raw_text", "amount"}
+    extracted_fields = (
+        {k: v for k, v in extracted.items() if k not in _SKIP and v}
+        if cls["category"] in ("management", "legal") else {}
+    )
+
     upsert_file(file_id,
                 primary_date=primary_date,
                 dates=dates,
+                extracted_fields=extracted_fields or None,
                 status="pending")
 
     # ── 3. プロセッサー ───────────────────────────────────────
